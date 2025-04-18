@@ -3,6 +3,7 @@ import { useState } from "react";
 
 const Home = () => {
   const [file, setFile] = useState(null);
+  const [result, setResult] = useState("STRING");
   const handleSubmit = (e) => {
     e.preventDefault();
   };
@@ -15,7 +16,7 @@ const Home = () => {
       </div>
       <form
         onSubmit={handleSubmit}
-        className="flex flex-col items-center flex-1"
+        className="flex flex-col items-center p-4 m-4"
       >
         <h2 className="text-2xl m-2">Upload File</h2>
         <div className="flex">
@@ -33,7 +34,11 @@ const Home = () => {
           </button>
         </div>
       </form>
-      <div></div>
+      {result && (
+        <div>
+          <h2>{result}</h2>
+        </div>
+      )}
     </div>
   );
 };
