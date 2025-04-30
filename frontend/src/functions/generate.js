@@ -23,3 +23,21 @@ export function previewLocalImage(file) {
     reader.readAsDataURL(file);
   });
 }
+
+export async function generateCaptionFromFile(file) {
+  const form = new FormData();
+  form.append("image", file);
+
+  const res = await fetch(`${BASE_URL}/caption`, {
+    method: "POST",
+    body: form,
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(errorText || res.statusText);
+  }
+
+  const { caption } = await res.json();
+  return caption;
+}

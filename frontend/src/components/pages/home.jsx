@@ -2,23 +2,47 @@ import React, { useState } from "react";
 import {
   generateImageFromPrompt,
   previewLocalImage,
+  generateCaptionFromFile,
 } from "../../functions/generate";
 
 export default function Home() {
+  const [selectedFile, setSelectedFile] = useState(null);
   const [localPreview, setLocalPreview] = useState(null);
   const [generatedImage, setGeneratedImage] = useState(null);
   const [prompt, setPrompt] = useState("");
   const [loadingGen, setLoadingGen] = useState(false);
+  const [loadingCap, setLoadingCap] = useState(false);
+  const [caption, setCaption] = useState("");
+  const [capError, setCapError] = useState("");
 
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    setSelectedFile(file);
+    setCaption("");
+    setCapError("");
     try {
       const dataUrl = await previewLocalImage(file);
       setLocalPreview(dataUrl);
     } catch (err) {
       console.error(err);
       alert("Could not preview image");
+    }
+  };
+
+  const handleCaption = async () => {
+    if (!selectedFile) return;
+    setLoadingCap(true);
+    setCaption("");
+    setCapError("");
+    try {
+      const result = await generateCaptionFromFile(selectedFile);
+      setCaption(result);
+    } catch (err) {
+      console.error(err);
+      setCapError(err.message || "Error generating caption");
+    } finally {
+      setLoadingCap(false);
     }
   };
 
@@ -39,7 +63,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-100 p-6 flex flex-col items-center">
       <div className="w-full max-w-2xl bg-white rounded-2xl shadow-lg p-8 space-y-10">
-        {/* Direct Upload */}
+        {/* Direct Upload & Caption */}
         <section className="space-y-4">
           <h2 className="text-2xl font-bold text-gray-800">
             Upload Your Image
@@ -55,6 +79,7 @@ export default function Home() {
                        file:bg-blue-50 file:text-blue-700
                        hover:file:bg-blue-100"
           />
+
           {localPreview && (
             <div className="border rounded-lg overflow-hidden">
               <img
@@ -63,6 +88,28 @@ export default function Home() {
                 className="w-full object-contain"
               />
             </div>
+          )}
+
+          {localPreview && (
+            <button
+              onClick={handleCaption}
+              disabled={loadingCap}
+              className="mt-2 px-6 py-2 bg-green-600 text-white font-semibold rounded-lg
+                         hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loadingCap ? "Captioning…" : "GO"}
+            </button>
+          )}
+
+          {caption && (
+            <p className="mt-4 text-gray-800">
+              <strong>Caption:</strong> {caption}
+            </p>
+          )}
+          {capError && (
+            <p className="mt-4 text-red-600">
+              <strong>Error:</strong> {capError}
+            </p>
           )}
         </section>
 
