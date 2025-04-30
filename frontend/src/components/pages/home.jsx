@@ -1,91 +1,104 @@
 import React, { useState } from "react";
+import {
+  generateImageFromPrompt,
+  previewLocalImage,
+} from "../../functions/generate";
 
-const Home = () => {
-  const [file, setFile] = useState(null);
-  const [result, setResult] = useState("");
-  const [loading, setLoading] = useState(false);
+export default function Home() {
+  const [localPreview, setLocalPreview] = useState(null);
+  const [generatedImage, setGeneratedImage] = useState(null);
+  const [prompt, setPrompt] = useState("");
+  const [loadingGen, setLoadingGen] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!file) {
-      setResult("Please select a JPG file first.");
-      return;
-    }
-
-    setLoading(true);
-    setResult("");
-
-    const formData = new FormData();
-    formData.append("image", file);
-
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
     try {
-      const res = await fetch("http://localhost:8000/predict", {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || res.statusText);
-      }
-      const data = await res.json();
-      setResult(data.result);
+      const dataUrl = await previewLocalImage(file);
+      setLocalPreview(dataUrl);
     } catch (err) {
-      setResult("Error: " + err.message);
+      console.error(err);
+      alert("Could not preview image");
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!prompt.trim()) return;
+    setLoadingGen(true);
+    try {
+      const imageUrl = await generateImageFromPrompt(prompt);
+      setGeneratedImage(imageUrl);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to generate image");
     } finally {
-      setLoading(false);
-      setFile(null);
+      setLoadingGen(false);
     }
   };
 
   return (
-    <div className="flex flex-col items-center h-screen">
-      <div className="w-full p-8 mb-4 bg-blue-500">
-        <h1 className="text-5xl text-center text-white font-bold">
-          IMAGE CAPTIONING
-        </h1>
-      </div>
-
-      <form
-        onSubmit={handleSubmit}
-        className="flex flex-col items-center p-4 m-4"
-      >
-        <h2 className="text-2xl m-2">Upload File</h2>
-
-        <div className="flex items-center">
+    <div className="min-h-screen bg-gray-100 p-6 flex flex-col items-center">
+      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-lg p-8 space-y-10">
+        {/* Direct Upload */}
+        <section className="space-y-4">
+          <h2 className="text-2xl font-bold text-gray-800">
+            Upload Your Image
+          </h2>
           <input
             type="file"
-            accept="image/jpeg, image/jpg"
-            onChange={(e) => {
-              setResult("");
-              setFile(e.target.files[0]);
-            }}
-            className="border rounded p-2 block text-sm
-                       file:cursor-pointer file:bg-blue-300
-                       file:rounded-2xl file:p-2 file:font-semibold
-                       file:mx-2 hover:file:bg-blue-400"
+            accept="image/*"
+            onChange={handleFileChange}
+            className="block w-full text-sm text-gray-500
+                       file:mr-4 file:py-2 file:px-4
+                       file:rounded-full file:border-0
+                       file:text-sm file:font-medium
+                       file:bg-blue-50 file:text-blue-700
+                       hover:file:bg-blue-100"
           />
+          {localPreview && (
+            <div className="border rounded-lg overflow-hidden">
+              <img
+                src={localPreview}
+                alt="preview"
+                className="w-full object-contain"
+              />
+            </div>
+          )}
+        </section>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="mx-4 p-2 border rounded w-20 text-xl
-                       bg-green-300 font-semibold cursor-pointer
-                       hover:bg-green-500 disabled:opacity-50
-                       disabled:cursor-not-allowed"
-          >
-            {loading ? "Loading…" : "GO!"}
-          </button>
-        </div>
-      </form>
-
-      {result && (
-        <div className="mt-4 p-4 bg-gray-100 rounded-lg shadow">
-          <h2 className="text-xl font-semibold mb-2">Result:</h2>
-          <p className="text-gray-800">{result}</p>
-        </div>
-      )}
+        {/* Text-to-Image */}
+        <section className="space-y-4">
+          <h2 className="text-2xl font-bold text-gray-800">
+            Generate from Prompt
+          </h2>
+          <div className="flex space-x-2">
+            <input
+              type="text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Describe your image..."
+              className="flex-1 px-4 py-2 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <button
+              onClick={handleGenerate}
+              disabled={loadingGen}
+              className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-r-lg
+                         hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loadingGen ? "Generating…" : "Generate"}
+            </button>
+          </div>
+          {generatedImage && (
+            <div className="border rounded-lg overflow-hidden">
+              <img
+                src={generatedImage}
+                alt="generated"
+                className="w-full object-contain"
+              />
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
-};
-
-export default Home;
+}

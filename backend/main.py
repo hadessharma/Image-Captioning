@@ -1,82 +1,79 @@
-import os
-import tensorflow as tf
-from fastapi import FastAPI, File, UploadFile, HTTPException
+# app.py
+
+import io, logging
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, JSONResponse
+from openai import OpenAI
+import httpx
+from PIL import Image
 
-# ─── CONFIGURATION ──────────────────────────────────────────────────────────────
-MODEL_DIR         = "image_caption_model"   # directory containing SavedModel
-FRONTEND_ORIGINS  = ["http://localhost:3000"]
+# ——— Logging ———
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+load_dotenv() 
+# ——— Instantiate the new OpenAI client ———
+client = OpenAI()  # pulls api_key from OPENAI_API_KEY env var
 
-# ─── FASTAPI SETUP ──────────────────────────────────────────────────────────────
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=FRONTEND_ORIGINS,
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ─── LOAD SAVEDMODEL & INFERENCE SIGNATURE ────────────────────────────────────────
-@app.on_event("startup")
-def load_caption_model():
-    global caption_model
-    # Ensure model directory exists
-    if not os.path.isdir(MODEL_DIR):
-        raise RuntimeError(f"Model directory '{MODEL_DIR}' not found.")
+@app.post("/generate-image")
+async def generate_image(payload: dict):
+    prompt = payload.get("prompt")
+    if not prompt:
+        raise HTTPException(400, "No prompt provided")
 
+    # 1) Generate image URL with the new images.generate interface
     try:
-        # Load the TensorFlow SavedModel
-        saved = tf.saved_model.load(MODEL_DIR)
-        # Grab the default serving function for inference
-        signature = saved.signatures.get('serving_default')
-        if signature is None:
-            # fallback to first available signature
-            signature = list(saved.signatures.values())[0]
-        caption_model = signature
-    except Exception as e:
-        raise RuntimeError(
-            f"Failed to load SavedModel at '{MODEL_DIR}': {e}"
+        resp = client.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            n=1,
+            size="1024x1024",
+            response_format="url"
         )
-    print(f"✅ SavedModel loaded successfully with signature '{caption_model.name}'.")
-
-# ─── PREPROCESSING ───────────────────────────────────────────────────────────────
-def preprocess_image(jpeg_bytes: bytes) -> tf.Tensor:
-    img = tf.io.decode_jpeg(jpeg_bytes, channels=3)                   # [H,W,3]
-    img = tf.image.resize(img, [299, 299])                            # [299,299,3]
-    img = tf.keras.applications.inception_v3.preprocess_input(img)    # scale to [-1,1]
-    return tf.expand_dims(img, axis=0)                                # [1,299,299,3]
-
-# ─── PREDICTION ENDPOINT ─────────────────────────────────────────────────────────
-@app.post("/predict")
-async def predict(image: UploadFile = File(...)):
-    # 1) Validate file type
-    if image.content_type not in ("image/jpeg", "image/jpg"):
-        raise HTTPException(400, "Only JPG files are supported.")
-
-    # 2) Read bytes
-    body = await image.read()
-
-    # 3) Preprocess
-    try:
-        batch = preprocess_image(body)
-    except Exception:
-        raise HTTPException(400, "Failed to decode or preprocess image.")
-
-    # 4) Inference via SavedModel signature
-    try:
-        preds_dict = caption_model(batch)
-        # get first tensor output
-        preds = list(preds_dict.values())[0]
+        image_url = resp.data[0].url
+        logger.info(f"Image URL: {image_url}")
     except Exception as e:
-        raise HTTPException(500, f"Inference error: {e}")
+        logger.exception("OpenAI image generation failed")
+        return JSONResponse(
+            status_code=502,
+            content={"error": "OpenAI generation error", "detail": str(e)}
+        )
 
-    # 5) Post-process
-    if isinstance(preds, tf.Tensor) and preds.dtype == tf.string:
-        caption = preds.numpy()[0].decode("utf-8")
-    else:
-        caption = str(preds.numpy().tolist())
+    # 2) Fetch the PNG bytes
+    try:
+        async with httpx.AsyncClient() as http:
+            r = await http.get(image_url, timeout=10.0)
+            r.raise_for_status()
+            png_bytes = r.content
+    except Exception as e:
+        logger.exception("Failed to fetch generated image")
+        return JSONResponse(
+            status_code=502,
+            content={"error": "Image fetch failed", "detail": str(e)}
+        )
 
-    return {"result": caption}
+    # 3) Convert PNG → JPEG
+    try:
+        img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=90)
+        buf.seek(0)
+    except Exception as e:
+        logger.exception("JPEG conversion error")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "JPEG conversion failed", "detail": str(e)}
+        )
 
-# ─── RUN: uvicorn main:app --reload --host 0.0.0.0 --port 8000 ─────────────────────
+    # 4) Stream back to client
+    return StreamingResponse(buf, media_type="image/jpeg")
