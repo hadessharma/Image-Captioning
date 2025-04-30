@@ -34,10 +34,10 @@ async def generate_image(payload: dict):
     # 1) Generate image URL with the new images.generate interface
     try:
         resp = client.images.generate(
-            model="dall-e-3",
+            model="dall-e-2",
             prompt=prompt,
             n=1,
-            size="1024x1024",
+            size="512x512",
             response_format="url"
         )
         image_url = resp.data[0].url
