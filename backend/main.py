@@ -9,12 +9,12 @@ from openai import OpenAI
 import httpx
 from PIL import Image
 
-# ——— Logging ———
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 load_dotenv() 
-# ——— Instantiate the new OpenAI client ———
-client = OpenAI()  # pulls api_key from OPENAI_API_KEY env var
+
+client = OpenAI()
 
 app = FastAPI()
 app.add_middleware(
@@ -46,8 +46,7 @@ print(tf.__version__)
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     print(f"GPUs detected: {gpus}")
-    # Optionally, set memory growth to avoid allocating all GPU memory at once
-    # for gpu in gpus:
+
     #     tf.config.experimental.set_memory_growth(gpu, True)
 else:
     print("No GPU detected. Running on CPU.")
@@ -328,24 +327,19 @@ class ImageCaptioningModel(tf.keras.Model):
         self.acc_tracker = tf.keras.metrics.Mean(name="accuracy")
 
     def call(self, inputs, training=False):
-        """
-        inputs: a tuple (images, captions_in)
-          - images: [batch, H, W, 3]
-          - captions_in: [batch, seq_len]
-        """
         images, captions_in = inputs
 
-        # 1) optional augmentation
+        # optional augmentation
         if self.image_aug is not None and training:
             images = self.image_aug(images)
 
-        # 2) feature extraction
+        # feature extraction
         features = self.cnn_model(images, training=training)
 
-        # 3) encode
+        # encode
         encoded = self.encoder(features, training=training)
 
-        # 4) decode (teacher forcing)
+        # decode
         logits  = self.decoder(captions_in, encoded, training=training)
 
         return logits
@@ -434,7 +428,7 @@ cross_entropy = tf.keras.losses.SparseCategoricalCrossentropy(
 )
 
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-# 1) Define callbacks
+# Define callbacks
 early_stopping = EarlyStopping(
     monitor='val_loss',
     patience=3,
@@ -448,15 +442,15 @@ lr_plateau = ReduceLROnPlateau(
     verbose=1
 )
 
-# 2) Recompile with an explicit learning rate
-optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)  # ← your chosen LR
+# explicit learning rate
+optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
 
 caption_model.compile(
     optimizer=optimizer,
     loss=cross_entropy
 )
 
-# 3) Fit with both callbacks
+# Fit with both callbacks
 history = caption_model.fit(
     train_dataset,
     epochs=EPOCHS,
@@ -516,27 +510,24 @@ def generate_caption(img_path, add_noise=False):
 # Image.open(img_path)
 
 
-# ─── IMAGE CAPTIONING ENDPOINT ─────────────────────────────────────────────────
 @app.post("/caption")
 async def caption_image(image: UploadFile = File(...)):
-    # 1) Validate
     if image.content_type not in ("image/jpeg", "image/jpg", "image/png"):
         raise HTTPException(400, "Only JPG/PNG files are supported.")
-    # 2) Read bytes
     body = await image.read()
-    # 3) (optional) verify that PIL can open it
     try:
         Image.open(io.BytesIO(body))
     except Exception:
         raise HTTPException(400, "Invalid image file.")
-    # 4) Run your caption model
+
+    # Run model
     try:
         # caption = caption_model.predict_somehow(body)
         caption = generate_caption(img_path)
     except Exception as e:
         logger.exception("Caption generation failed")
         raise HTTPException(500, f"Caption error: {e}")
-    # 5) Return JSON
+    # Return
     return {"caption": caption}
 
 
@@ -546,7 +537,7 @@ async def generate_image(payload: dict):
     if not prompt:
         raise HTTPException(400, "No prompt provided")
 
-    # 1) Generate image URL with the new images.generate interface
+
     try:
         resp = client.images.generate(
             model="dall-e-2",
@@ -564,7 +555,6 @@ async def generate_image(payload: dict):
             content={"error": "OpenAI generation error", "detail": str(e)}
         )
 
-    # 2) Fetch the PNG bytes
     try:
         async with httpx.AsyncClient() as http:
             r = await http.get(image_url, timeout=10.0)
@@ -577,7 +567,6 @@ async def generate_image(payload: dict):
             content={"error": "Image fetch failed", "detail": str(e)}
         )
 
-    # 3) Convert PNG → JPEG
     try:
         img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
         buf = io.BytesIO()
@@ -590,5 +579,4 @@ async def generate_image(payload: dict):
             content={"error": "JPEG conversion failed", "detail": str(e)}
         )
 
-    # 4) Stream back to client
     return StreamingResponse(buf, media_type="image/jpeg")
